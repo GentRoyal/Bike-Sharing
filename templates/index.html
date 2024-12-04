@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Bike Rental Prediction Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body { padding-top: 50px; }
+        .feature-slider { margin-bottom: 15px; }
+        .feature-label { display: flex; justify-content: space-between; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center mb-4">Bike Rental Prediction Dashboard</h1>
+        
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">Input Features</div>
+                    <div class="card-body" id="feature-inputs">
+                        <!-- Dynamic feature inputs will be generated here -->
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-8">
+                <div class="card mb-4">
+                    <div class="card-header">Prediction Results</div>
+                    <div class="card-body text-center">
+                        <h2>Predicted Bike Rentals</h2>
+                        <div id="prediction-result" class="display-3 text-primary">-</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">Sensitivity Analysis</div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <select id="sensitivity-feature" class="form-select">
+                                    <option value="mnth">Month</option>
+                                    <option value="yr">Year</option>
+                                    <option value="holiday">Holiday</option>
+                                    <option value="weekday">Weekday</option>
+                                    <option value="workingday">Working Day</option>
+                                    <option value="weathersit">Weather Situation</option>
+                                    <option value="hum">Humidity</option>
+                                    <option value="windspeed">Wind Speed</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="sensitivity-plot"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Feature metadata from Python
+        const features = {{ features | tojson | safe }};
+
+        // Generate feature input sliders
+        function generateFeatureInputs() {
+            const container = document.getElementById('feature-inputs');
+            container.innerHTML = '';
+
+            Object.entries(features).forEach(([key, meta]) => {
+                const div = document.createElement('div');
+                div.classList.add('feature-slider');
+                
+                // Create label container
+                const labelContainer = document.createElement('div');
+                labelContainer.classList.add('feature-label');
+                
+                const label = document.createElement('label');
+                label.textContent = meta.label;
+                label.classList.add('form-label');
+                
+                const valueDisplay = document.createElement('span');
+                valueDisplay.id = `value-${key}`;
+                
+                labelContainer.appendChild(label);
+                labelContainer.appendChild(valueDisplay);
+                
+                const input = document.createElement('input');
+                input.type = 'range';
+                input.min = meta.min;
+                input.max = meta.max;
+                input.step = meta.type === 'int' ? '1' : '0.1';
+                input.value = (meta.min + meta.max) / 2;
+                input.id = `input-${key}`;
+                input.classList.add('form-range');
+                
+                // Update value display on input
+                input.addEventListener('input', (e) => {
+                    valueDisplay.textContent = e.target.value;
+                    updatePrediction();
+                });
+                
+                // Initial value display
+                valueDisplay.textContent = input.value;
+                
+                div.appendChild(labelContainer);
+                div.appendChild(input);
+                container.appendChild(div);
+            });
+        }
+
+        // Collect current input values
+        function getCurrentInputs() {
+            const inputs = {};
+            Object.keys(features).forEach(key => {
+                inputs[key] = parseFloat(document.getElementById(`input-${key}`).value);
+            });
+            return inputs;
+        }
+
+        // Update prediction
+        function updatePrediction() {
+            const inputs = getCurrentInputs();
+            
+            // Call prediction endpoint
+            axios.post('/predict', inputs)
+                .then(response => {
+                    document.getElementById('prediction-result').textContent = 
+                        response.data.prediction.toLocaleString();
+                    
+                    // Update sensitivity plot
+                    updateSensitivityPlot(inputs);
+                })
+                .catch(error => {
+                    console.error('Prediction error:', error);
+                    document.getElementById('prediction-result').textContent = 'Error';
+                });
+        }
+
+        // Update sensitivity plot
+        function updateSensitivityPlot(baseInputs) {
+            const feature = document.getElementById('sensitivity-feature').value;
+            
+            axios.post('/sensitivity', {
+                base_input: baseInputs,
+                vary_feature: feature
+            })
+            .then(response => {
+                const plotData = response.data;
+                
+                const trace = {
+                    x: plotData.map(d => d.feature_value),
+                    y: plotData.map(d => d.prediction),
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    name: 'Bike Rentals'
+                };
+                
+                const layout = {
+                    title: `Impact of ${feature} on Bike Rentals`,
+                    xaxis: { title: feature },
+                    yaxis: { title: 'Predicted Rentals' }
+                };
+                
+                Plotly.newPlot('sensitivity-plot', [trace], layout);
+            })
+            .catch(error => {
+                console.error('Sensitivity analysis error:', error);
+            });
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            generateFeatureInputs();
+            updatePrediction();
+            
+            // Add event listener for sensitivity feature dropdown
+            document.getElementById('sensitivity-feature').addEventListener('change', () => {
+                updatePrediction(); // This will also trigger sensitivity plot update
+            });
+        });
+    </script>
+</body>
+</html>
